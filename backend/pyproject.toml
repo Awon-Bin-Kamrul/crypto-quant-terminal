@@ -1,0 +1,318 @@
+# Crypto Quant Terminal — backend
+# Dependency floors are lower bounds; exact versions are pinned in uv.lock (committed).
+# Architecture and layer rules: ../docs/ARCHITECTURE.md
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crypto-quant-terminal"
+version = "0.1.0"
+description = "Event-driven crypto research, backtesting, and paper/live execution engine."
+license = "MIT"
+requires-python = ">=3.11,<3.14"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Framework :: FastAPI",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Typing :: Typed",
+]
+dependencies = [
+    # --- API (entrypoints) -------------------------------------------------------------
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.35",                  # uvloop + httptools + websockets (sans-I/O)
+    # --- Validation & config at the edges (D9) ------------------------------------------
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "orjson>=3.10",                             # wire serialization for events and WS frames
+    # --- Compute ------------------------------------------------------------------------
+    "polars>=1.30,<2",                          # research frames + vectorized sweeps (D8)
+    "numpy>=2.1,<3",
+    # --- Exchanges: REST + WebSocket (ccxt.pro ships inside ccxt since 1.95) ------------
+    "ccxt>=4.4.80,<5",
+    # ccxt's transport. aiohttp 4 (pre-release) removed TCPConnector(loop=…), which ccxt
+    # still passes; pinning below 4 keeps a future release from breaking every connection.
+    "aiohttp>=3.10,<4",
+    # --- Persistence (SQL migrations run by our own asyncpg migrator) --------------------
+    "asyncpg>=0.30",
+    # --- Messaging ----------------------------------------------------------------------
+    "redis[hiredis]>=5.2",                      # asyncio client; Streams, Pub/Sub, leases
+    # --- Observability ------------------------------------------------------------------
+    "structlog>=24.4",
+    "prometheus-client>=0.21",
+    # --- CLI ----------------------------------------------------------------------------
+    "typer>=0.15",
+]
+
+[project.scripts]
+cq = "crypto_quant.entrypoints.cli.main:app"
+
+[project.optional-dependencies]
+# Statistical research: walk-forward optimisation, Deflated Sharpe, PBO.
+research = [
+    "scipy>=1.14",
+    "optuna>=4.1",
+]
+# ML meta-labeling (README: "ML-enhanced trade probability prediction").
+ml = [
+    "scikit-learn>=1.6",
+    "xgboost>=2.1",
+    "lightgbm>=4.5",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "asyncpg-stubs>=0.30",
+    "import-linter>=2.1",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "pytest-cov>=6.0",
+    "pytest-timeout>=2.3",
+    "hypothesis>=6.120",
+    "pre-commit>=4.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crypto_quant"]
+
+[tool.uv]
+default-groups = ["dev"]
+
+# ======================================================================================
+# Ruff — lint + format
+# ======================================================================================
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "N",        # pep8-naming
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "A",        # shadowed builtins
+    "C4",       # comprehensions
+    "DTZ",      # naive datetimes — every timestamp must be tz-aware UTC (invariant 4)
+    "T10",      # debugger left in
+    "T20",      # print() — use structlog
+    "ISC",      # implicit string concat
+    "PIE",
+    "PT",       # pytest style
+    "RET",
+    "SIM",
+    "TID",      # banned APIs (below)
+    "ARG",      # unused arguments
+    "PTH",      # pathlib over os.path
+    "ERA",      # commented-out code
+    "PL",       # pylint
+    "TRY",      # exception hygiene
+    "BLE",      # blind except
+    "FBT",      # boolean positional traps
+    "FLY",
+    "PERF",
+    "FURB",
+    "LOG",
+    "G",        # logging format
+    "S",        # bandit
+    "ASYNC",    # blocking calls inside async code
+    "NPY",      # legacy numpy.random global state (invariant 9)
+    "RUF",
+]
+ignore = [
+    "PLR0913",  # domain constructors legitimately take many fields
+    "TRY003",   # contextual messages in raise are wanted
+    "ISC001",   # conflicts with the formatter
+    "TRY400",   # expected failures are logged without tracebacks on purpose
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101", "S106", "S311", "PLR2004", "ARG001", "ARG002", "FBT001",
+    "PT018",    # compound assertions read better for multi-field state checks
+    "PLC0415",  # local imports keep optional adapters out of unrelated tests
+]
+# Null-object implementations accept and ignore every argument by design.
+"src/crypto_quant/application/ports/telemetry.py" = ["ARG002"]
+"src/crypto_quant/application/ports/publishing.py" = ["ARG002"]
+"src/crypto_quant/application/ports/trading.py" = ["ARG002", "FBT001"]
+# Vectorized strategy forms import Polars inside the method on purpose (see strategies/__init__).
+"src/crypto_quant/strategies/**" = ["PLC0415"]
+# Typer options are boolean flags by design.
+"src/crypto_quant/entrypoints/cli/**" = ["FBT001", "FBT002"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["crypto_quant"]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body", "fastapi.Header",
+    "fastapi.Security", "typer.Option", "typer.Argument",
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"random".msg = "Global RNG breaks reproducibility (invariant 9). Inject a seeded numpy.random.Generator."
+"time.time".msg = "Use the injected Clock port for wall time, time.monotonic_ns() for durations."
+"datetime.datetime.now".msg = "Use the injected Clock port so backtests control time."
+"pandas".msg = "Polars is the dataframe standard. Convert at an explicit interop boundary only."
+"pickle".msg = "Unsafe and version-fragile. Use Parquet, JSON or orjson."
+"asyncio.get_event_loop".msg = "Use asyncio.get_running_loop()."
+
+[tool.ruff.lint.pylint]
+max-args = 8
+
+# ======================================================================================
+# mypy — strict everywhere
+# ======================================================================================
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+    "possibly-undefined",
+    "redundant-self",
+]
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[[tool.mypy.overrides]]
+# Tests assert on mutable state between awaits, which trips literal narrowing, and they call
+# third-party test helpers that ship without annotations.
+module = ["tests.*"]
+warn_unreachable = false
+disallow_untyped_calls = false
+disable_error_code = ["comparison-overlap"]
+
+[[tool.mypy.overrides]]
+# Libraries without usable type information.
+module = ["ccxt", "ccxt.*"]
+ignore_missing_imports = true
+
+# ======================================================================================
+# pytest
+# ======================================================================================
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+timeout = 60
+xfail_strict = true
+filterwarnings = ["error"]
+markers = [
+    "integration: requires the docker-compose stack (TimescaleDB + Redis)",
+    "parity: cross-engine equivalence (vectorized, event-driven, paper replay)",
+    "slow: takes longer than 5 seconds",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["crypto_quant"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 85
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+    "^\\s*\\.\\.\\.$",
+]
+
+# ======================================================================================
+# import-linter — hexagonal boundaries (docs/ARCHITECTURE.md §2)
+# ======================================================================================
+[tool.importlinter]
+root_packages = ["crypto_quant"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+id = "layers"
+name = "Hexagonal layers point inward"
+type = "layers"
+layers = [
+    "crypto_quant.entrypoints",
+    "crypto_quant.bootstrap",
+    "crypto_quant.infrastructure",
+    "crypto_quant.application",
+    "crypto_quant.domain",
+]
+
+[[tool.importlinter.contracts]]
+id = "domain-pure"
+name = "Domain is pure: no frameworks, no I/O"
+type = "forbidden"
+source_modules = ["crypto_quant.domain"]
+forbidden_modules = [
+    "crypto_quant.strategies",
+    "pydantic", "pydantic_settings", "structlog", "orjson", "pandas",
+    "fastapi", "starlette", "uvicorn", "typer",
+    "sqlalchemy", "alembic", "asyncpg", "redis", "ccxt",
+    "tenacity", "prometheus_client",
+]
+
+[[tool.importlinter.contracts]]
+id = "application-no-io"
+name = "Application orchestrates through ports only"
+type = "forbidden"
+source_modules = ["crypto_quant.application"]
+forbidden_modules = [
+    "crypto_quant.strategies",
+    "pydantic", "pydantic_settings", "orjson", "pandas",
+    "fastapi", "starlette", "uvicorn", "typer",
+    "sqlalchemy", "alembic", "asyncpg", "redis", "ccxt",
+    "tenacity", "prometheus_client",
+]
+
+[[tool.importlinter.contracts]]
+id = "strategies-sandboxed"
+name = "Strategies see the domain and nothing else"
+type = "forbidden"
+source_modules = ["crypto_quant.strategies"]
+forbidden_modules = [
+    "crypto_quant.application", "crypto_quant.infrastructure",
+    "crypto_quant.bootstrap", "crypto_quant.entrypoints",
+    "pydantic", "pydantic_settings", "structlog", "orjson", "pandas",
+    "fastapi", "starlette", "uvicorn", "typer",
+    "sqlalchemy", "alembic", "asyncpg", "redis", "ccxt",
+    "tenacity", "prometheus_client",
+]
+
+[[tool.importlinter.contracts]]
+id = "entrypoints-via-bootstrap"
+name = "Entrypoints reach adapters only through the composition root"
+type = "forbidden"
+source_modules = ["crypto_quant.entrypoints"]
+forbidden_modules = ["crypto_quant.infrastructure"]
+# Entrypoints reach adapters *through* bootstrap by design; only direct imports are banned.
+allow_indirect_imports = true

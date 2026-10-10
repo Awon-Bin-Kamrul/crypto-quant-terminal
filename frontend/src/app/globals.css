@@ -1,0 +1,122 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Terminal palette. The app is dark-only: a trading screen is read for hours, and every color
+ * below was chosen against the same near-black background. Semantic trading colors (buy, sell,
+ * warning) are tokens too, so charts, tables and badges agree on what green and red mean.
+ */
+:root {
+  --radius: 0.375rem;
+
+  --background: oklch(0.155 0.012 255);
+  --foreground: oklch(0.93 0.008 255);
+  --card: oklch(0.182 0.013 255);
+  --card-foreground: oklch(0.93 0.008 255);
+  --popover: oklch(0.2 0.015 255);
+  --popover-foreground: oklch(0.93 0.008 255);
+  --primary: oklch(0.74 0.13 232);
+  --primary-foreground: oklch(0.16 0.02 255);
+  --secondary: oklch(0.235 0.015 255);
+  --secondary-foreground: oklch(0.9 0.01 255);
+  --muted: oklch(0.225 0.013 255);
+  --muted-foreground: oklch(0.67 0.02 255);
+  --accent: oklch(0.26 0.018 255);
+  --accent-foreground: oklch(0.95 0.008 255);
+  --destructive: oklch(0.64 0.2 24);
+  --border: oklch(0.275 0.016 255);
+  --input: oklch(0.3 0.016 255);
+  --ring: oklch(0.74 0.13 232);
+
+  --buy: oklch(0.75 0.16 158);
+  --buy-muted: oklch(0.75 0.16 158 / 0.14);
+  --sell: oklch(0.67 0.2 22);
+  --sell-muted: oklch(0.67 0.2 22 / 0.14);
+  --warning: oklch(0.82 0.14 80);
+  --warning-muted: oklch(0.82 0.14 80 / 0.14);
+  --info: oklch(0.74 0.13 232);
+
+  --chart-1: oklch(0.74 0.13 232);
+  --chart-2: oklch(0.75 0.16 158);
+  --chart-3: oklch(0.82 0.14 80);
+  --chart-4: oklch(0.7 0.16 300);
+  --chart-5: oklch(0.67 0.2 22);
+}
+
+@theme inline {
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-buy: var(--buy);
+  --color-buy-muted: var(--buy-muted);
+  --color-sell: var(--sell);
+  --color-sell-muted: var(--sell-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-info: var(--info);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings:
+      "cv11" 1,
+      "ss01" 1;
+  }
+
+  /* Thin, low-contrast scrollbars: panels scroll a lot, and the bars should not draw the eye. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+}
+
+@layer utilities {
+  /* A figure that updates in place: fixed-width digits so columns do not jitter. */
+  .figure {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+}

@@ -1,0 +1,100 @@
+# ------------------------------------------------------------------------------------------
+# Crypto Quant Terminal — local infrastructure.
+#
+#   cp .env.example .env     # or: make env   (generates strong secrets)
+#   make up                  # starts TimescaleDB + Redis and waits until both are healthy
+#
+# Ports are published on 127.0.0.1 only. Application services (api, ingestor, engine,
+# worker, web) are added in Module 12 and will reach these by service name.
+# ------------------------------------------------------------------------------------------
+name: crypto-quant
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.26.2-pg17
+    restart: unless-stopped
+    shm_size: 1g                         # parallel query workers use /dev/shm
+    environment:
+      POSTGRES_USER: ${CQ_DB_OWNER_USER:-cq_owner}
+      POSTGRES_PASSWORD: ${CQ_DB_OWNER_PASSWORD:?set CQ_DB_OWNER_PASSWORD in .env}
+      POSTGRES_DB: ${CQ_DB_NAME:-cq}
+      # C collation: byte-order sorting, identical on every platform, fastest for symbol keys.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TIMESCALEDB_TELEMETRY: "off"
+      TS_TUNE_MEMORY: ${CQ_DB_TUNE_MEMORY:-4GB}
+      TS_TUNE_NUM_CPUS: ${CQ_DB_TUNE_CPUS:-4}
+      TS_TUNE_MAX_CONNS: "200"
+      # Read by initdb/100_cq_bootstrap.sh
+      CQ_DB_APP_USER: ${CQ_DB_APP_USER:-cq_app}
+      CQ_DB_APP_PASSWORD: ${CQ_DB_APP_PASSWORD:?set CQ_DB_APP_PASSWORD in .env}
+      CQ_DB_TEST_NAME: ${CQ_DB_TEST_NAME:-cq_test}
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=timescaledb,pg_stat_statements
+      - -c
+      - max_connections=200
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - log_lock_waits=on
+      - -c
+      - log_temp_files=0
+    ports:
+      - "127.0.0.1:${CQ_DB_PORT:-5432}:5432"
+    volumes:
+      - timescaledb-data:/var/lib/postgresql/data
+      # Mounted as a single file: mounting the directory would hide the image's own
+      # 000_install_timescaledb.sh and 001_timescaledb_tune.sh.
+      - ./infra/timescaledb/initdb/100_cq_bootstrap.sh:/docker-entrypoint-initdb.d/100_cq_bootstrap.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    stop_grace_period: 60s               # let PostgreSQL finish a clean shutdown checkpoint
+    logging: *default-logging
+
+  redis:
+    image: redis:8.4-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+      - --requirepass
+      - ${CQ_REDIS_PASSWORD:?set CQ_REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${CQ_REDIS_PASSWORD:?set CQ_REDIS_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${CQ_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    sysctls:
+      net.core.somaxconn: 1024
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      # REDISCLI_AUTH keeps the password out of the process list.
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 30s               # time to fsync the AOF
+    logging: *default-logging
+
+volumes:
+  timescaledb-data:
+  redis-data:
